@@ -179,4 +179,18 @@ if(STEMSCRIBE_BUILD_SCREENSHOT)
         stemscribe_engine
         juce::juce_audio_utils
         juce::juce_recommended_config_flags)
+
+    # processor smoke test: stemscribe_smoketest song.wav
+    juce_add_console_app(stemscribe_smoketest PRODUCT_NAME "stemscribe_smoketest")
+    target_sources(stemscribe_smoketest PRIVATE tools/SmokeTest.cpp ${STEMSCRIBE_PLUGIN_SOURCES})
+    target_compile_definitions(stemscribe_smoketest PRIVATE
+        JucePlugin_Name="stem-scribe"
+        JUCE_MODAL_LOOPS_PERMITTED=1
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_USE_MP3AUDIOFORMAT=1)
+    target_link_libraries(stemscribe_smoketest PRIVATE
+        stemscribe_engine
+        juce::juce_audio_utils
+        juce::juce_recommended_config_flags)
 endif()

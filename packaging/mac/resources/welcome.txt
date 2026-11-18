@@ -1,0 +1,9 @@
+This installs stem-scribe, a stem splitter and audio-to-MIDI tool:
+
+  - stem-scribe VST3        -> /Library/Audio/Plug-Ins/VST3
+  - stem-scribe Audio Unit  -> /Library/Audio/Plug-Ins/Components
+  - stem-scribe app         -> /Applications
+  - Separation model        -> /Library/Application Support/YourBrand/stem-scribe
+
+After installing, restart your DAW (or rescan plugins) and look for
+"stem-scribe" under the effects from YourBrand.

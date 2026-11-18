@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+    <title>stem-scribe @VERSION@</title>
+    <welcome file="welcome.txt"/>
+    <options customize="allow" require-scripts="false" hostArchitectures="x86_64,arm64"/>
+    <domains enable_localSystem="true"/>
+    <volume-check>
+        <allowed-os-versions><os-version min="11.0"/></allowed-os-versions>
+    </volume-check>
+    <choices-outline>
+        <line choice="vst3"/>
+        <line choice="au"/>
+        <line choice="app"/>
+        <line choice="model"/>
+    </choices-outline>
+    <choice id="vst3" title="stem-scribe VST3" description="For Ableton Live, FL Studio, Cubase, REAPER, Studio One, Bitwig and most other hosts.">
+        <pkg-ref id="com.yourbrand.stemscribe.vst3"/>
+    </choice>
+    <choice id="au" title="stem-scribe Audio Unit" description="For Logic Pro, GarageBand and MainStage.">
+        <pkg-ref id="com.yourbrand.stemscribe.au"/>
+    </choice>
+    <choice id="app" title="stem-scribe app" description="The standalone app: drop a song, then drag out stems and MIDI.">
+        <pkg-ref id="com.yourbrand.stemscribe.app"/>
+    </choice>
+    <choice id="model" title="Separation model (HTDemucs, about 80 MB)" description="Needed to split songs into stems. Shared by the plugin and the app. Without it stem-scribe only does audio-to-MIDI on the whole file." enabled="false" selected="true">
+        <pkg-ref id="com.yourbrand.stemscribe.model"/>
+    </choice>
+    <pkg-ref id="com.yourbrand.stemscribe.vst3" version="@VERSION@">stem-scribe-vst3.pkg</pkg-ref>
+    <pkg-ref id="com.yourbrand.stemscribe.au" version="@VERSION@">stem-scribe-au.pkg</pkg-ref>
+    <pkg-ref id="com.yourbrand.stemscribe.app" version="@VERSION@">stem-scribe-app.pkg</pkg-ref>
+    <pkg-ref id="com.yourbrand.stemscribe.model" version="@VERSION@">stem-scribe-model.pkg</pkg-ref>
+</installer-gui-script>

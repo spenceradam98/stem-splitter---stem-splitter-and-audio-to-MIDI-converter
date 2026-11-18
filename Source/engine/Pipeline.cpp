@@ -22,6 +22,11 @@ std::string hexKey (uint64_t key)
     return b;
 }
 
+uint64_t analysisKey (const AudioBuffer& input, bool split)
+{
+    return input.hash() ^ (split ? 0x9e3779b97f4a7c15ull : 0ull);   // split and unsplit analyses are cached apart
+}
+
 void transcribeStem (StemResult& s, const BasicPitch& bp, int threads, const std::atomic<bool>* cancel,
                      const std::function<void (float)>& progress)
 {
@@ -76,7 +81,6 @@ bool runPipeline (const AudioBuffer& inputRaw, const PipelineOptions& o, Separat
     auto report = [&] (float p, const std::string& s) { if (progress) progress (std::clamp (p, 0.0f, 1.0f), s); };
     auto cancelled = [&] { if (cancel && cancel->load()) { error = "cancelled"; return true; } return false; };
     Analysis a;
-    a.key = inputRaw.hash();
     report (0.0f, "Preparing audio");
     AudioBuffer input = inputRaw.toStereo();
     if (std::abs (input.sampleRate - 44100.0) > 0.5) input = resample (input, 44100.0);
@@ -85,7 +89,7 @@ bool runPipeline (const AudioBuffer& inputRaw, const PipelineOptions& o, Separat
     if (input.numFrames() < 4410) { error = "the audio is too short to analyse"; return false; }
 
     const bool split = o.split && sep && sep->isReady();
-    if (split) a.key ^= 0x9e3779b97f4a7c15ull;   // split and unsplit analyses of the same audio are cached apart
+    a.key = analysisKey (inputRaw, split);
     const float sepShare = split ? 0.8f : 0.0f;
     if (split)
     {

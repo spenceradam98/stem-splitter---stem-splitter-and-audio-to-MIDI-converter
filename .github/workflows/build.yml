@@ -1,0 +1,191 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  NAME: stem-scribe
+  MODEL_FILE: ggml-model-htdemucs-4s-f16.bin
+  DEMUCS_CPP_REF: 4edae497a114de1ccb17ac9b4a2b8fc0144714d7
+
+concurrency:
+  group: build-${{ github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  # The HTDemucs weights (~81 MB) are not committed. Convert the official Demucs v4 weights to
+  # demucs.cpp's ggml format once, cache the result, and hand it to every other job.
+  model:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cache model
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: model/${{ env.MODEL_FILE }}
+          key: htdemucs-4s-${{ env.DEMUCS_CPP_REF }}
+      - name: Convert htdemucs weights with demucs.cpp's script
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          set -e
+          git clone https://github.com/sevagh/demucs.cpp.git dcpp
+          cd dcpp && git checkout "$DEMUCS_CPP_REF" && git submodule update --init vendor/demucs
+          python3 -m pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
+          python3 -m pip install --quiet ./vendor/demucs numpy
+          mkdir -p ../model
+          if ! python3 scripts/convert-pth-to-ggml.py ../model; then
+            echo "::warning::conversion failed, using the pre-converted file from demucs.cpp's Hugging Face dataset"
+            curl -fL -o "../model/$MODEL_FILE" "https://huggingface.co/datasets/Retrobear/demucs.cpp/resolve/main/$MODEL_FILE"
+          fi
+          ls -l ../model
+          test -s "../model/$MODEL_FILE"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: model
+          path: model/${{ env.MODEL_FILE }}
+          retention-days: 3
+
+  test:
+    needs: model
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: model, path: model }
+      - name: Configure (engine only)
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DSTEMSCRIBE_BUILD_PLUGIN=OFF
+      - name: Build
+        run: cmake --build build --parallel 4
+      - name: Engine tests (including a real HTDemucs run)
+        env:
+          STEMSCRIBE_TEST_MODEL: ${{ github.workspace }}/model/${{ env.MODEL_FILE }}
+        run: ctest --test-dir build --output-on-failure
+      - name: Speed benchmark (60 s clip, split + transcribe, 2 threads)
+        run: |
+          python3 - <<'PY'
+          import math, struct, wave
+          sr = 44100; n = 60 * sr
+          w = wave.open("bench.wav", "wb"); w.setnchannels(2); w.setsampwidth(2); w.setframerate(sr)
+          frames = bytearray()
+          for i in range(n):
+              t = i / sr; beat = t % 0.5
+              x = 0.3 * math.sin(2 * math.pi * 55 * t) + 0.15 * math.sin(2 * math.pi * 440 * (1 + 0.5 * (int(t) % 2)) * t)
+              x += 0.5 * math.exp(-beat * 30) * math.sin(2 * math.pi * 60 * beat)
+              v = int(max(-1, min(1, x * 0.6)) * 32767)
+              frames += struct.pack("<hh", v, v)
+          w.writeframes(bytes(frames)); w.close()
+          PY
+          time ./build/stemscribe_cli bench.wav bench_out --model "model/$MODEL_FILE" --threads 2
+          ls -l bench_out
+
+  mac:
+    needs: model
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: model, path: model }
+      - name: Configure (universal x86_64 + arm64, macOS 11 minimum)
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64"
+      - name: Build
+        run: cmake --build build --config Release --parallel 4
+      - name: Verify binaries run on macOS 11 (universal, minos <= 11.0)
+        run: |
+          fail=0
+          while IFS= read -r -d '' f; do
+            minos=$(otool -arch all -l "$f" | awk '/LC_BUILD_VERSION/{m=1} /LC_VERSION_MIN_MACOSX/{v=1} m&&$1=="minos"{print $2; m=0} v&&$1=="version"{print $2; v=0}' | sort -V | tail -1)
+            archs=$(lipo -archs "$f")
+            echo "$f -> minos $minos, archs $archs"
+            [ -n "$minos" ] && [ "$(printf '%s\n11.0\n' "$minos" | sort -V | tail -1)" = "11.0" ] || { echo "::error::$f needs macOS $minos"; fail=1; }
+            case " $archs " in *x86_64*) ;; *) echo "::error::$f has no Intel slice"; fail=1;; esac
+            case " $archs " in *arm64*) ;; *) echo "::error::$f has no Apple Silicon slice"; fail=1;; esac
+          done < <(find build -path '*_artefacts/Release/*' -path '*/Contents/MacOS/*' -type f -print0)
+          exit $fail
+      - name: Engine tests
+        env:
+          STEMSCRIBE_TEST_MODEL: ${{ github.workspace }}/model/${{ env.MODEL_FILE }}
+        run: ctest --test-dir build -C Release --output-on-failure
+      - name: Ad-hoc sign
+        run: |
+          shopt -s nullglob
+          for b in build/*_artefacts/Release/VST3/*.vst3 build/*_artefacts/Release/AU/*.component \
+                   build/*_artefacts/Release/Standalone/*.app; do
+            codesign --force --deep --sign - "$b"
+          done
+      - name: Make .dmg (with .pkg inside, model bundled)
+        run: |
+          VERSION=$(grep -m1 -oE 'project\([^)]*VERSION [0-9.]+' CMakeLists.txt | grep -oE '[0-9.]+$')
+          bash packaging/mac/make_installer.sh build "$VERSION" dist "model/$MODEL_FILE"
+          ls -l dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.NAME }}-mac
+          path: dist/*.dmg
+
+  windows:
+    needs: model
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: model, path: model }
+      - name: Configure
+        run: cmake -B build -G "Visual Studio 17 2022" -A x64
+      - name: Build
+        run: cmake --build build --config Release --parallel 4
+      - name: Engine tests
+        shell: pwsh
+        run: |
+          $env:STEMSCRIBE_TEST_MODEL = "$PWD\model\$env:MODEL_FILE"
+          ctest --test-dir build -C Release --output-on-failure
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+      - name: Make Setup.exe (model bundled)
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path CMakeLists.txt -Pattern 'project\([^)]*VERSION ([0-9.]+)' | Select-Object -First 1).Matches[0].Groups[1].Value
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$version" "/DBuild=$PWD\build" "/DOutDir=$PWD\dist" `
+              "/DModel=$PWD\model\$env:MODEL_FILE" packaging\windows\StemScribe.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.NAME }}-windows
+          path: dist/*.exe
+
+  release:
+    # Publishes the installers to a GitHub Release named after the CMake project version on every
+    # successful build of main (and on v* tags). Works the same on a private repository.
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    needs: [test, mac, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read version
+        id: ver
+        run: echo "version=$(grep -m1 -oE 'project\([^)]*VERSION [0-9.]+' CMakeLists.txt | grep -oE '[0-9.]+$')" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ${{ env.NAME }}-*
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.ver.outputs.version }}
+          name: v${{ steps.ver.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          body: |
+            Installers built by GitHub Actions from ${{ github.sha }}. Both include the HTDemucs separation model.
+            macOS: universal (Intel + Apple Silicon), macOS 11 or later. Unsigned: open the .dmg, right-click the .pkg and choose Open.
+            Windows: 64-bit Setup.exe (VST3 goes to Common Files\VST3, the model to ProgramData).
+          files: dist/*
+          overwrite_files: true

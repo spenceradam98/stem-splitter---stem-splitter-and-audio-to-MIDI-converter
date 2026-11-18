@@ -52,4 +52,6 @@ private:
 };
 
 std::string hexKey (uint64_t key);
+// Cache key of an analysis: hash of the input audio, different for split and unsplit runs.
+uint64_t analysisKey (const AudioBuffer& input, bool split);
 } // namespace ss

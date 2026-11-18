@@ -1,0 +1,24 @@
+HOW TO INSTALL STEM-SCRIBE (Mac)
+
+1. Double-click "stem-scribe-Installer.pkg".
+
+2. If macOS says it "can't be opened because it is from an unidentified
+   developer": close that message, then RIGHT-CLICK (or Control-click) the
+   .pkg and choose "Open", then "Open" again.
+   (This happens because this test build isn't signed with an Apple
+   Developer certificate yet.)
+
+3. Click through the installer. The separation model (about 80 MB) is
+   always installed; you can untick the plugin formats you don't want.
+
+4. Restart your DAW or rescan plugins. stem-scribe appears as an effect
+   from YourBrand. Logic/GarageBand use the Audio Unit; most other hosts
+   use the VST3.
+
+5. The stem-scribe app is in Applications: drop a song on its window,
+   wait for the analysis, then drag stems and MIDI out of it.
+
+Splitting a 4-minute song takes a few minutes on Apple Silicon and longer
+on older Intel Macs; results are cached, so reopening a session is quick.
+
+Works on macOS 11 (Big Sur) or newer, on Intel and Apple Silicon Macs.
