@@ -1,0 +1,5 @@
+build*/
+/models/*.bin
+*.th
+.DS_Store
+/dist/
