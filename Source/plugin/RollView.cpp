@@ -874,7 +874,8 @@ void RollView::editChord (int index)
     chordEditor->selectAll();
     chordEditor->grabKeyboardFocus();
     editingChord = index;
-    chordEditor->onReturnKey = [this] {
+    WeakReference<RollView> weakThis (this);
+    chordEditor->onReturnKey = [this, weakThis] {
         auto* an = proc.getAnalysis();
         ss::Chord parsed;
         if (an && editingChord >= 0 && editingChord < (int) an->chords.size() && ss::parseChordName (chordEditor->getText().toStdString(), parsed))
@@ -884,10 +885,10 @@ void RollView::editChord (int index)
             c2.root = parsed.root; c2.quality = parsed.quality; c2.bass = parsed.bass;
             proc.analysisEdited (false);
         }
-        MessageManager::callAsync ([w = WeakReference<RollView> (this)] { if (auto* v = w.get()) { v->chordEditor.reset(); v->editingChord = -1; v->repaint(); } });
+        MessageManager::callAsync ([w = weakThis] { if (auto* v = w.get()) { v->chordEditor.reset(); v->editingChord = -1; v->repaint(); } });
     };
-    chordEditor->onEscapeKey = chordEditor->onFocusLost = [this] {
-        MessageManager::callAsync ([w = WeakReference<RollView> (this)] { if (auto* v = w.get()) { v->chordEditor.reset(); v->editingChord = -1; v->repaint(); } });
+    chordEditor->onEscapeKey = chordEditor->onFocusLost = [weakThis] {
+        MessageManager::callAsync ([w = weakThis] { if (auto* v = w.get()) { v->chordEditor.reset(); v->editingChord = -1; v->repaint(); } });
     };
 }
 
