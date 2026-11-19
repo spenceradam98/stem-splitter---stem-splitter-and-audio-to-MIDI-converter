@@ -47,6 +47,11 @@ DMGROOT="$WORK/dmg"
 mkdir -p "$DMGROOT"
 cp "$WORK/$NAME-Installer.pkg" "$DMGROOT/"
 cp "$HERE/resources/HOW TO INSTALL.txt" "$DMGROOT/"
-hdiutil create -volname "$NAME $VERSION" -srcfolder "$DMGROOT" -ov -format UDZO \
-        "$OUT/$NAME-$VERSION-mac.dmg"
+# hdiutil on CI runners sometimes fails with "Resource busy"; retry a few times.
+for attempt in 1 2 3 4 5; do
+    if hdiutil create -volname "$NAME $VERSION" -srcfolder "$DMGROOT" -ov -format UDZO \
+            "$OUT/$NAME-$VERSION-mac.dmg"; then break; fi
+    [ "$attempt" = 5 ] && exit 1
+    echo "hdiutil failed (attempt $attempt), retrying..."; sleep $((attempt * 5))
+done
 echo "Created $OUT/$NAME-$VERSION-mac.dmg"
